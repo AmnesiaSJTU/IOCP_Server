@@ -120,5 +120,10 @@ typedef struct _PER_SOCKET_CONTEXT
 //
 class CIOCPModel
 {
+public:
+    IOCPModel();
+    ~IOCPModel();
 
+public:
+    
 };
