@@ -13,6 +13,14 @@
 
 //
 #define MAX_BUFFER_LENGTH       (1024 * 8)
+//
+#define MAX_POST_ACCEPT         10
+
+//
+#define RELEASE(x)              {if(x!=NULL) {delete(x);x=NULL;}}
+#define RELEASE_HANDLE(x)       {if(x!=nullptr && x!=INVALID_HANDLE_VALUE)\
+{CloseHandle(x); x = nullptr;}}
+#define RELEASE_ARRAY(x)        {if(x!=nullptr) {delete[] x;x=nullptr;}}
 
 typedef enum _OPERATION_TYPE
 {
@@ -131,7 +139,7 @@ public:
     bool LoadSocketLib();
     void UnloadSocketLib() {WSACleanup();}
 
-    bool Start();
+    bool Start(int port);
     void Stop();
 
     std::string GetLocalIP();
