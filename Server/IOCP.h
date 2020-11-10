@@ -24,10 +24,10 @@
 
 typedef enum _OPERATION_TYPE
 {
+    NULL_POSTED,
     ACCEPT_POSTED,
     SEND_POSTED,
-    RECV_POSTED,
-    NULL_POSTED
+    RECV_POSTED
 }OPERATION_TYPE;
 
 //
@@ -84,7 +84,7 @@ typedef struct _PER_SOCKET_CONTEXT
 {
     SOCKET        m_Socket;
     SOCKADDR_IN   m_ClientAddr;
-    std::vector<_PER_IO_CONTEXT>    m_arrayIoContext;
+    std::vector<_PER_IO_CONTEXT*>    m_arrayIoContext;
 
     //
     _PER_SOCKET_CONTEXT()
@@ -101,10 +101,13 @@ typedef struct _PER_SOCKET_CONTEXT
             m_Socket = INVALID_SOCKET;
         }
 
-        for (auto pIoContext : m_arrayIoContext)
+        //for (auto pIoContext : m_arrayIoContext)
+        for (size_t i = 0; i < m_arrayIoContext.size(); i++)
         {
-            delete pIoContext;
+            //delete pIoContext;
+            delete m_arrayIoContext.at(i);
         }
+        m_arrayIoContext.clear();
 
         m_arrayIoContext.clear();
     }
@@ -122,8 +125,23 @@ typedef struct _PER_SOCKET_CONTEXT
         if (NULL == pContext)
             return;
 
-        m_arrayIoContext.erase(pContext);
+        //m_arrayIoContext.erase(pContext);
         //m_arrayIoContext.remove
+
+        std::vector<PER_IO_CONTEXT*>::iterator it;
+        it = m_arrayIoContext.begin();
+        while (it != m_arrayIoContext.end())
+        {
+            PER_IO_CONTEXT* pContext = *it;
+            if (pContext == pContext)
+            {
+                delete pContext;
+                pContext = nullptr;
+                it = m_arrayIoContext.erase(it);
+                break;
+            }
+            it++;
+        }
     }
 
 }PER_SOCKET_CONTEXT, *PPER_SOCKET_CONTEXT;
@@ -186,7 +204,7 @@ protected:
     bool _PostSend(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoContext);
     bool _DoSend(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoContext);
 
-    bool _DoClose(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoContext);
+    bool _DoClose(PER_SOCKET_CONTEXT* pSocContext);
 
     void _AddToContextList(PER_SOCKET_CONTEXT* pSocContext);
     void _RemoveContext(PER_SOCKET_CONTEXT* pSocContext);

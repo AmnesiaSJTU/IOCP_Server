@@ -1,6 +1,9 @@
 //
 //
 //
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+
+#pragma comment(lib, "WS2_32.lib")
 
 #include "IOCP.h"
 
@@ -34,7 +37,7 @@ CIOCPMdl::~CIOCPMdl()
     this->UnloadSocketLib();
 }
 
-DWORD WINAPI CIOCPMdl::_WorkThread(LPARAM lpParam)
+DWORD WINAPI CIOCPMdl::_WorkThread(LPVOID lpParam)
 {
     WorkerThreadParam* pParam = (WorkerThreadParam*)lpParam;
     CIOCPMdl* pIocpModel = (CIOCPMdl*)pParam->pIOCPMdl; //
@@ -66,7 +69,7 @@ DWORD WINAPI CIOCPMdl::_WorkThread(LPARAM lpParam)
         {
             const DWORD dw_err = GetLastError();
 
-            if (!pIocpModel->HandleError(pSocContext，dw_err))
+            if (!pIocpModel->HandleError(pSocContext, dw_err))
             {
                 break;
             }
@@ -79,7 +82,7 @@ DWORD WINAPI CIOCPMdl::_WorkThread(LPARAM lpParam)
             {
                 pIocpModel->OnConnectionClosed(pSocContext);
                 // TODO: double check
-                pIocpModel->_DoClose(pSocContext, pIoContext);
+                pIocpModel->_DoClose(pSocContext);
                 // TODO: double check
                 pIocpModel->_RemoveContext(pSocContext);
 
@@ -171,7 +174,7 @@ bool CIOCPMdl::Start(int port)
 
 void CIOCPMdl::Stop()
 {
-    if (m_pListenContext != nullptr && m_pListenContext->m_Socket != nullptr)
+    if (m_pListenContext != nullptr && m_pListenContext->m_Socket != NULL)
     {
         SetEvent(m_hShutdownEvent);
         for (int i=0; i<m_nThreads; i++)
@@ -207,7 +210,7 @@ bool CIOCPMdl::RecvData(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoCont
 
 bool CIOCPMdl::_InitializeIOCP()
 {
-    this->_ShowMessage("Start to initialize IOCO model");
+    this->_ShowMessage("Start to initialize IOCP model");
 
     // initialization
     m_hIoCompletionPort = CreateIoCompletionPort(INVALID_HANDLE_VALUE,
@@ -274,14 +277,14 @@ bool CIOCPMdl::_InitializeListenSocket()
     }
 
     sockaddr_in serverAddress;
-    ZeroMemory((char*)serverAddress, sizeof(serverAddress));
+    ZeroMemory((char*)&serverAddress, sizeof(serverAddress));
     serverAddress.sin_family = AF_INET;
     // TODO: double check
     serverAddress.sin_addr.s_addr = htonl(INADDR_ANY);
     serverAddress.sin_port = htons(m_nPort);
 
     if (SOCKET_ERROR == bind(m_pListenContext->m_Socket,
-        (sockaddr*)serverAddress, sizeof(serverAddress)))
+        (sockaddr*)&serverAddress, sizeof(serverAddress)))
     {
         this->_ShowMessage("Bind socket bind() failed");
         this->_DeInitialize();
@@ -332,8 +335,7 @@ bool CIOCPMdl::_InitializeListenSocket()
         NULL,
         NULL))
     {
-        this->_ShowMessage("WSAIoctl m_lpfnGetAcceptExSockAddrs failed, err:
-            %d", WSAGetLastError());
+        this->_ShowMessage("WSAIoctl m_lpfnGetAcceptExSockAddrs failed, err: %d", WSAGetLastError());
         this->_DeInitialize();
         return false;
     }
@@ -359,7 +361,7 @@ void CIOCPMdl::_DeInitialize()
 
     RELEASE_HANDLE(m_hShutdownEvent);
 
-    if (int i = 0; i < m_nThreads; i++)
+    for (int i = 0; i < m_nThreads; i++)
     {
         RELEASE_HANDLE(m_phWorkerThreads[i]);
     }
@@ -418,17 +420,18 @@ bool CIOCPMdl::_PostAccept(PER_IO_CONTEXT* pIoContext)
     return true;
 }
 
-//
+// !used for tcp_keepalive!
 #include <mstcpip.h>
 bool CIOCPMdl::_DoAccept(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoContext)
 {
-    InterlockedIncrement(&connectCount)；
+    InterlockedIncrement(&connectCount);
     InterlockedDecrement(&acceptPostCount);
 
     // If there are other entrances?
     SOCKADDR_IN *clientAddr = NULL, *localAddr = NULL;
     DWORD dwAddrLen = (sizeof(sockaddr_in) + 16);
     int remoteLen = 0, localLen = 0;
+    // How about failure?
     this->m_lpfnGetAcceptExSockAddrs(pIoContext->m_wsaBuf.buf,
         0,
         dwAddrLen,
@@ -441,6 +444,7 @@ bool CIOCPMdl::_DoAccept(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoCon
     //
     PER_SOCKET_CONTEXT* pNewSocketContext = new PER_SOCKET_CONTEXT;
     this->_AddToContextList(pNewSocketContext);
+    pNewSocketContext->m_Socket = pIoContext->m_sockAccept;
     memcpy(&(pNewSocketContext->m_ClientAddr),
         clientAddr, sizeof(SOCKADDR_IN));
 
@@ -470,7 +474,7 @@ bool CIOCPMdl::_DoAccept(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoCon
     }
     OnConnectionAccepted(pNewSocketContext);
 
-    //
+    // Create new IO context to post recv
     PER_IO_CONTEXT* pNewIoContext = pNewSocketContext->GetNewIoContext();
     if (pNewIoContext != NULL)
     {
@@ -480,7 +484,7 @@ bool CIOCPMdl::_DoAccept(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoCon
     }
     else
     {
-        _DoClose(pNewSocketContext, pNewIoContext);
+        _DoClose(pNewSocketContext);
         return false;
     }
     
@@ -489,12 +493,14 @@ bool CIOCPMdl::_DoAccept(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoCon
 
 bool CIOCPMdl::_DoFirstRecvWithData(PER_IO_CONTEXT* pIoContext)
 {
-
+    // TODO:
+    return true;
 }
 
 bool CIOCPMdl::_DoFirstRecvWithoutData(PER_IO_CONTEXT* pIoContext)
 {
-
+    // TODO
+    return true;
 }
 
 bool CIOCPMdl::_PostRecv(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoContext)
@@ -506,7 +512,7 @@ bool CIOCPMdl::_PostRecv(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoCon
 
     DWORD dwBytes = 0, dwFlags = 0;
 
-    // ?
+    // Post WSARecv request here
     const int nBytesRecv = WSARecv(pIoContext->m_sockAccept,
         &pIoContext->m_wsaBuf,
         1,
@@ -518,71 +524,244 @@ bool CIOCPMdl::_PostRecv(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoCon
     if (SOCKET_ERROR == nBytesRecv)
     {
         // TODO:
+        int nErr = WSAGetLastError();
+        if (WSA_IO_PENDING != nErr)
+        {
+            this->_ShowMessage("WSARecv err: %d", nErr);
+            this->_DoClose(pSocContext);
+            return false;
+        }
     }
+    return true;
 }
 
 bool CIOCPMdl::_DoRecv(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoContext)
 {
     //
+    SOCKADDR_IN* clientAddress = &(pSocContext->m_ClientAddr);
+    // Show the message and buf we received
+    this->_ShowMessage("Received %s:%d , Message: %s", inet_ntoa(clientAddress->sin_addr),
+        ntohs(clientAddress->sin_port), pIoContext->m_wsaBuf.buf);
     
+    //
+    // !important about what to do next!
+    this->OnRecvCompleted(pSocContext, pIoContext);
+    return true;
 }
 
 bool CIOCPMdl::_PostSend(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoContext)
 {
+    // TODO: How about remaining data send process?
+    pIoContext->m_OpType = SEND_POSTED;
+    pIoContext->m_nTotalBytes = 0;
+    pIoContext->m_nSendBytes = 0;
 
+    const DWORD dwFlags = 0;
+    DWORD dwSendNumBytes = 0;
+    // Post send
+    // Send test
+    //char buff[] = "SendBackData";
+    //char buff = 'S';
+    char* buff = new char[10] { "abcdefghk" };
+    pIoContext->m_wsaBuf.buf = buff;
+    pIoContext->m_wsaBuf.len = sizeof(buff);
+    const int nRet = WSASend(pIoContext->m_sockAccept,
+        &pIoContext->m_wsaBuf,
+        1, // always
+        &dwSendNumBytes,
+        dwFlags,
+        &pIoContext->m_Overlapped,
+        NULL);
+
+    if (SOCKET_ERROR == nRet)
+    {
+        int nErr = WSAGetLastError();
+        if (WSA_IO_PENDING != nErr)
+        {
+            this->_ShowMessage("WSASend() err: %d", nErr);
+            this->_DoClose(pSocContext);
+            return false;
+        }
+    }
+    return true;
 }
 
 bool CIOCPMdl::_DoSend(PER_SOCKET_CONTEXT* pSocContext, PER_IO_CONTEXT* pIoContext)
 {
-
+    if (pIoContext->m_nSendBytes < pIoContext->m_nTotalBytes)
+    {
+        pIoContext->m_wsaBuf.buf = pIoContext->m_szBuffer +
+            pIoContext->m_nSendBytes;
+        pIoContext->m_wsaBuf.len = pIoContext->m_wsaBuf.len -
+            pIoContext->m_nSendBytes;
+        
+        return this->_PostSend(pSocContext, pIoContext);
+    }
+    else
+    {
+        this->OnSentCompleted(pSocContext, pIoContext);
+        //
+        return true;
+    }
+    
 }
 
 bool CIOCPMdl::_DoClose(PER_SOCKET_CONTEXT* pSocContext)
 {
-
+    // TODO: double check
+    if(pSocContext != m_pListenContext)
+    {
+        InterlockedDecrement(&connectCount);
+        this->_RemoveContext(pSocContext);
+        return true;
+    }
+    InterlockedIncrement(&errorCount);
+    return false;
 }
 
 bool CIOCPMdl::_AssociateWithIOCP(PER_SOCKET_CONTEXT* pSocContext)
 {
-
+    HANDLE hTemp = CreateIoCompletionPort((HANDLE)pSocContext->m_Socket,
+        m_hIoCompletionPort, (DWORD)pSocContext, 0);
+    if (nullptr == hTemp)
+    {
+        this->_ShowMessage("Associate with IOCP failed, err: %d", GetLastError());
+        // TODO: double check!
+        this->_DoClose(pSocContext);
+        return false;
+    }
+    return true;
 }
 
 void CIOCPMdl::_AddToContextList(PER_SOCKET_CONTEXT* pSocContext)
 {
-
+    EnterCriticalSection(&m_csContextList);
+    m_arrayClientContext.push_back(pSocContext);
+    LeaveCriticalSection(&m_csContextList);
 }
 
 void CIOCPMdl::_RemoveContext(PER_SOCKET_CONTEXT* pSocContext)
 {
-
+    EnterCriticalSection(&m_csContextList);
+    std::vector<PER_SOCKET_CONTEXT*>::iterator it;
+    it = m_arrayClientContext.begin();
+    while (it != m_arrayClientContext.end())
+    {
+        PER_SOCKET_CONTEXT* pContext = *it;
+        if (pSocContext == pContext)
+        {
+            delete pSocContext;
+            pSocContext = nullptr;
+            it = m_arrayClientContext.erase(it);
+            break;
+        }
+        it++;
+    }
+    LeaveCriticalSection(&m_csContextList);
 }
 
 void CIOCPMdl::_ClearContextList()
 {
-
+    EnterCriticalSection(&m_csContextList);
+    for (size_t i = 0; i < m_arrayClientContext.size(); i++)
+    {
+        delete m_arrayClientContext.at(i);
+    }
+    m_arrayClientContext.clear();
+    LeaveCriticalSection(&m_csContextList);
 }
+
+//
+// Other help functions
+//
 
 std::string CIOCPMdl::GetLocalIP()
 {
+    char hostName[MAX_PATH] = {0};
+    gethostname(hostName, MAX_PATH);
+    struct hostent FAR* lpHostEnt = gethostbyname(hostName);
+    if (lpHostEnt == NULL)
+    {
+        return DEFAULT_IP;
+    }
 
+    const LPSTR lpAddr = lpHostEnt->h_addr_list[0];
+    struct in_addr inAddr;
+    memmove(&inAddr, lpAddr, 4);
+    m_strIP = std::string(inet_ntoa(inAddr));
+    return m_strIP;
 }
 
 int CIOCPMdl::_GetNumberOfProcessors() noexcept
 {
-
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return si.dwNumberOfProcessors;
 }
 
 bool CIOCPMdl::_IsSocketAlive(SOCKET s) noexcept
 {
-
+    const int nByteSent = send(s, "", 0, 0);
+    if (SOCKET_ERROR == nByteSent)
+    {
+        return false;
+    }
+    else
+    {
+        return true;
+    }
+    
 }
 
-bool CIOCPMdl::HandleError(PER_SOCKET_CONTEXT* pSocContext, const DWORD&dw_err)
+bool CIOCPMdl::HandleError(PER_SOCKET_CONTEXT* pSocContext, const DWORD& dw_err)
 {
-
+    if (WAIT_TIMEOUT == dw_err)
+    {
+        if (!_IsSocketAlive(pSocContext->m_Socket))
+        {
+            this->_ShowMessage("No client is connected");
+            this->OnConnectionClosed(pSocContext);
+            this->_DoClose(pSocContext);
+            return true;
+        }
+        else
+        {
+            this->_ShowMessage("Connection Timeout, retry");
+            return true;
+        }
+        
+    }
+    else if (ERROR_NETNAME_DELETED == dw_err)
+    {
+        this->OnConnectionError(pSocContext, dw_err);
+        if (!this->_DoClose(pSocContext))
+        {
+            this->_ShowMessage("Abnormal error detected");
+        }
+        return true;
+    }
+    else
+    {
+        this->_ShowMessage("Invalid error is detected, err: %d", dw_err);
+        this->OnConnectionError(pSocContext, dw_err);
+        this->_DoClose(pSocContext);
+        return false;
+    }
+    
 }
 
 void CIOCPMdl::_ShowMessage(const char* szFormat, ...)
 {
     // va_start //
+    // TODO: logging system support
+    if (1)
+    {
+        char buff[256] = {0};
+        va_list argList;
+        va_start(argList, szFormat);
+        vsnprintf(buff, sizeof(buff), szFormat, argList);
+        va_end(argList);
+
+        // TODO:
+    }
 }
