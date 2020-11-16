@@ -3,8 +3,11 @@
 //
 
 #pragma once
+//#include <atlstr.h>
 #include <string>
-using std::string
+using std::string; //
+
+#pragma warning(disable: 4996)
 
 // TODO: need to check if 8*1024 can work or not
 #define MAX_BUFFER_LENGTH (512)
@@ -65,7 +68,7 @@ public:
 private:
     bool EstablishConnections();
 
-    bool ConnectToServer(SOCKET* pSocket, CString strServer, int nPort);
+    bool ConnectToServer(SOCKET& pSocket, CString strServer, int nPort);
 
     static DWORD WINAPI _ConnectionThread(LPVOID lpParam);
 
